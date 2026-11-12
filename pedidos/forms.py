@@ -2,64 +2,64 @@
 # FORMULARIOS DEL SISTEMA
 # =========================================================
 
-# Importamos el sistema de formularios de Django.
+# Sistema de formularios de Django.
 from django import forms
 
-# Importamos Pedido para obtener
-# automáticamente sus estados.
-from .models import Pedido
+# Modelos que utilizaremos dentro de los formularios.
+from .models import Categoria, Pedido
+
 
 
 # =========================================================
-# FORMULARIO PARA FILTRAR REPORTES
+# FORMULARIO PARA BUSCAR PRODUCTOS
 # =========================================================
 
-class ReporteFiltroForm(forms.Form):
+class ProductoFiltroForm(forms.Form):
 
-    # Fecha inicial.
-    #
-    # required=False significa que el filtro
-    # puede quedar vacío.
-    fecha_desde = forms.DateField(
+    # -----------------------------------------------------
+    # BÚSQUEDA POR NOMBRE
+    # -----------------------------------------------------
+
+    # Campo de texto opcional.
+    busqueda = forms.CharField(
         required=False,
-        label="Desde",
-        widget=forms.DateInput(
+        label="Buscar producto",
+        widget=forms.TextInput(
             attrs={
-                "type": "date",
                 "class": "form-control",
+                "placeholder": "Ejemplo: café",
             }
         ),
     )
 
-    # Fecha final.
-    fecha_hasta = forms.DateField(
-        required=False,
-        label="Hasta",
-        widget=forms.DateInput(
-            attrs={
-                "type": "date",
-                "class": "form-control",
-            }
-        ),
-    )
 
-    # Estado del pedido.
-    #
-    # Agregamos primero una opción vacía
-    # para representar "Todos".
-    estado = forms.ChoiceField(
+    # -----------------------------------------------------
+    # FILTRO POR CATEGORÍA
+    # -----------------------------------------------------
+
+    # ModelChoiceField permite llenar automáticamente
+    # el selector utilizando objetos de Categoria.
+    categoria = forms.ModelChoiceField(
         required=False,
-        label="Estado",
-        choices=[
-            ("", "Todos"),
-            *Pedido.Estado.choices,
-        ],
+
+        # Solo mostramos categorías activas.
+        queryset=Categoria.objects.filter(
+            activo=True
+        ).order_by("nombre"),
+
+        # Opción utilizada cuando no queremos
+        # filtrar por una categoría específica.
+        empty_label="Todas las categorías",
+
+        label="Categoría",
+
         widget=forms.Select(
             attrs={
                 "class": "form-select",
             }
         ),
     )
+
 
     # =====================================================
     # VALIDACIÓN DEL FORMULARIO
