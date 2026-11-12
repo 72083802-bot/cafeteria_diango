@@ -38,6 +38,27 @@ Actualmente el sistema incluye:
 - Control de versiones con Git y GitHub.
 - Verificación automática mediante GitHub Actions.
 
+## Flujo principal
+
+Login
+→ Inicio
+→ Tienda
+→ Carrito
+→ Confirmar pedido
+→ Mis pedidos
+→ Detalle
+## Administración
+
+Los usuarios administradores disponen adicionalmente de:
+
+- Panel Django Admin.
+- Gestión de usuarios.
+- Gestión de productos.
+- Gestión de categorías.
+- Gestión de pedidos.
+- Vista de reportes.
+
+
 ---
 
 ## Estructura principal del proyecto
