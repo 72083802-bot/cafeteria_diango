@@ -10,6 +10,7 @@ from .models import Categoria, Pedido
 
 
 
+
 # =========================================================
 # FORMULARIO PARA BUSCAR PRODUCTOS
 # =========================================================
@@ -60,6 +61,56 @@ class ProductoFiltroForm(forms.Form):
         ),
     )
 
+# =========================================================
+# FORMULARIO PARA FILTRAR REPORTES
+# =========================================================
+
+class ReporteFiltroForm(forms.Form):
+
+    # Fecha inicial.
+    #
+    # required=False significa que el filtro
+    # puede quedar vacío.
+    fecha_desde = forms.DateField(
+        required=False,
+        label="Desde",
+        widget=forms.DateInput(
+            attrs={
+                "type": "date",
+                "class": "form-control",
+            }
+        ),
+    )
+
+    # Fecha final.
+    fecha_hasta = forms.DateField(
+        required=False,
+        label="Hasta",
+        widget=forms.DateInput(
+            attrs={
+                "type": "date",
+                "class": "form-control",
+            }
+        ),
+    )
+
+    # Estado del pedido.
+    #
+    # Agregamos primero una opción vacía
+    # para representar "Todos".
+    estado = forms.ChoiceField(
+        required=False,
+        label="Estado",
+        choices=[
+            ("", "Todos"),
+            *Pedido.Estado.choices,
+        ],
+        widget=forms.Select(
+            attrs={
+                "class": "form-select",
+            }
+        ),
+    )
 
     # =====================================================
     # VALIDACIÓN DEL FORMULARIO
