@@ -11,14 +11,19 @@
 <div class="mb-4">
 
     <h1>
-        Mis pedidos
+        {% if user.is_staff %}
+            Gestión de pedidos
+        {% else %}
+            Mis pedidos
+        {% endif %}
     </h1>
 
     <p class="text-muted">
-
-        Historial de pedidos realizados por
-        {{ user.username }}.
-
+        {% if user.is_staff %}
+            Administración general de pedidos realizados en el sistema.
+        {% else %}
+            Historial de pedidos realizados por {{ user.username }}.
+        {% endif %}
     </p>
 
 </div>
@@ -44,6 +49,12 @@
                 <th>
                     Pedido
                 </th>
+
+                {% if user.is_staff %}
+                <th>
+                    Cliente
+                </th>
+                {% endif %}
 
                 <th>
                     Fecha
@@ -77,49 +88,86 @@
 
                 <!-- Identificador -->
                 <td>
-
                     #{{ pedido.id }}
-
                 </td>
+
+
+                <!-- Cliente (Solo admin) -->
+                {% if user.is_staff %}
+                <td>
+                    {{ pedido.usuario.username }}
+                </td>
+                {% endif %}
 
 
                 <!-- Fecha -->
                 <td>
-
                     {{ pedido.fecha|date:"d/m/Y H:i" }}
-
                 </td>
 
 
                 <!-- Total -->
                 <td>
-
                     S/ {{ pedido.total }}
-
                 </td>
 
 
                 <!-- Estado -->
                 <td>
-
-                    <span class="badge text-bg-secondary">
-
-                       {% include "pedidos/_estado_badge.html" with pedido=pedido %}
-
-                    </span>
-
+                    {% include "pedidos/_estado_badge.html" with pedido=pedido %}
                 </td>
 
 
-                <!-- Detalle -->
+                <!-- Acciones -->
                 <td>
 
-                    <a
-                        href="{% url 'detalle_pedido' pedido.id %}"
-                        class="btn btn-primary btn-sm"
-                    >
-                        Ver detalle
-                    </a>
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+
+                        <!-- Ver detalle (Para todos) -->
+                        <a
+                            href="{% url 'detalle_pedido' pedido.id %}"
+                            class="btn btn-primary btn-sm"
+                        >
+                            Ver detalle
+                        </a>
+
+                        {% if user.is_staff %}
+
+                            <!-- Requerimiento 1: Botón Editar -->
+                            <a
+                                href="{% url 'editar_pedido' pedido.id %}"
+                                class="btn btn-warning btn-sm"
+                            >
+                                Editar
+                            </a>
+
+                            <!-- Requerimiento 7: Botón selector desplegable de estado -->
+                            <form
+                                method="POST"
+                                action="{% url 'cambiar_estado_pedido' pedido.id %}"
+                                class="d-inline"
+                            >
+                                {% csrf_token %}
+                                <select
+                                    name="estado"
+                                    onchange="this.form.submit()"
+                                    class="form-select form-select-sm w-auto"
+                                    aria-label="Cambiar estado del pedido"
+                                >
+                                    {% for codigo, nombre in estados %}
+                                        <option
+                                            value="{{ codigo }}"
+                                            {% if pedido.estado == codigo %}selected{% endif %}
+                                        >
+                                            {{ nombre }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </form>
+
+                        {% endif %}
+
+                    </div>
 
                 </td>
 

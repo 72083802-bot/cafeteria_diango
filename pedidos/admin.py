@@ -1,5 +1,6 @@
-# Importamos el administrador de Django.
-from django.contrib import admin
+# Importamos el administrador y mensajes de Django.
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 
 # Importamos nuestros modelos.
 from .models import (
@@ -16,19 +17,13 @@ from .models import (
 
 @admin.register(Categoria)
 class CategoriaAdmin(admin.ModelAdmin):
-
-    # Columnas visibles en la lista.
     list_display = (
         "nombre",
         "activo",
     )
-
-    # Campo utilizado por el buscador.
     search_fields = (
         "nombre",
     )
-
-    # Filtros laterales.
     list_filter = (
         "activo",
     )
@@ -40,8 +35,6 @@ class CategoriaAdmin(admin.ModelAdmin):
 
 @admin.register(Producto)
 class ProductoAdmin(admin.ModelAdmin):
-
-    # Columnas visibles.
     list_display = (
         "nombre",
         "categoria",
@@ -49,28 +42,19 @@ class ProductoAdmin(admin.ModelAdmin):
         "stock",
         "activo",
     )
-
-    # Permite editar algunos campos directamente
-    # desde la lista de productos.
     list_editable = (
         "precio",
         "stock",
         "activo",
     )
-
-    # Buscador.
     search_fields = (
         "nombre",
         "descripcion",
     )
-
-    # Filtros.
     list_filter = (
         "categoria",
         "activo",
     )
-
-    # Orden alfabético.
     ordering = (
         "nombre",
     )
@@ -81,12 +65,13 @@ class ProductoAdmin(admin.ModelAdmin):
 # =========================================================
 
 class DetallePedidoInline(admin.TabularInline):
-
-    # Modelo que aparecerá dentro del pedido.
     model = DetallePedido
-
-    # No mostrar filas vacías adicionales.
     extra = 0
+    fields = (
+        "producto",
+        "cantidad",
+        "precio_unitario",
+    )
 
 
 # =========================================================
@@ -95,43 +80,74 @@ class DetallePedidoInline(admin.TabularInline):
 
 @admin.register(Pedido)
 class PedidoAdmin(admin.ModelAdmin):
-
     list_display = (
         "id",
         "usuario",
         "fecha",
         "total",
         "estado",
+        "stock_devuelto",
     )
-
+    readonly_fields = (
+        "total",
+        "stock_devuelto",
+    )
     search_fields = (
         "usuario__username",
     )
-
     list_filter = (
         "estado",
         "fecha",
     )
-
-    # Los detalles se mostrarán dentro del pedido.
     inlines = [
         DetallePedidoInline,
     ]
 
+    # Validar transiciones de estado desde /admin
+    def save_model(self, request, obj, form, change):
+        if change:
+            pedido_anterior = Pedido.objects.get(pk=obj.pk)
+            if pedido_anterior.estado != obj.estado:
+                try:
+                    nuevo_estado = obj.estado
+                    obj.estado = pedido_anterior.estado
+                    obj.cambiar_estado(nuevo_estado)
+                    return
+                except ValidationError as e:
+                    messages.error(request, e.message)
+                    return
+        super().save_model(request, obj, form, change)
 
+    # Actualizar stock y total cuando se modifican cantidades en /admin
+    def save_formset(self, request, form, formset, change):
+        instancias = formset.save(commit=False)
+        for detalle in instancias:
+            if detalle.pk:
+                detalle_anterior = DetallePedido.objects.get(pk=detalle.pk)
+                if detalle_anterior.cantidad != detalle.cantidad:
+                    try:
+                        nueva_cantidad = detalle.cantidad
+                        detalle.cantidad = detalle_anterior.cantidad
+                        detalle.actualizar_cantidad(nueva_cantidad)
+                        continue
+                    except ValidationError as e:
+                        messages.error(request, e.message)
+                        continue
+            detalle.save()
+        formset.save_m2m()
+        form.instance.recalcular_total()
 # =========================================================
 # ADMINISTRACIÓN DE DETALLES
 # =========================================================
 
 @admin.register(DetallePedido)
 class DetallePedidoAdmin(admin.ModelAdmin):
-
     list_display = (
         "pedido",
         "producto",
         "cantidad",
+        "precio_unitario",
     )
-
     search_fields = (
         "producto__nombre",
         "pedido__usuario__username",

@@ -114,4 +114,20 @@ urlpatterns = [
         name="reportes",
     ),
 
+
+    # -----------------------------------------------------
+    # EDITAR Y CAMBIAR ESTADO DEL PEDIDO (ADMIN)
+    # -----------------------------------------------------
+
+    path(
+        "pedido/<int:pedido_id>/editar/",
+        views.editar_pedido,
+        name="editar_pedido",
+    ),
+
+    path(
+        "pedido/<int:pedido_id>/cambiar-estado/",
+        views.cambiar_estado_pedido,
+        name="cambiar_estado_pedido",
+    ),
 ]

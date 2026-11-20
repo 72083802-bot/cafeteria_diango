@@ -57,6 +57,11 @@ from .models import (
     Producto,
 )
 
+from django.core.exceptions import (
+    PermissionDenied,
+    ValidationError,
+)
+
 
 # =========================================================
 # INICIO
@@ -662,19 +667,25 @@ def confirmar_pedido(request):
 @login_required
 def mis_pedidos(request):
 
-    pedidos = (
-        Pedido.objects
-        .filter(
-            usuario=request.user
+    if request.user.is_staff:
+        pedidos = (
+            Pedido.objects
+            .select_related("usuario")
+            .order_by("-fecha")
         )
-        .order_by("-fecha")
-    )
+    else:
+        pedidos = (
+            Pedido.objects
+            .filter(usuario=request.user)
+            .order_by("-fecha")
+        )
 
     return render(
         request,
         "pedidos/mis_pedidos.html",
         {
             "pedidos": pedidos,
+            "estados": Pedido.Estado.choices,
         },
     )
 
@@ -689,19 +700,17 @@ def detalle_pedido(
     pedido_id,
 ):
 
-    # El pedido debe cumplir DOS condiciones:
-    #
-    # - tener el identificador solicitado;
-    # - pertenecer al usuario autenticado.
-    pedido = get_object_or_404(
-
-        Pedido,
-
-        id=pedido_id,
-
-        usuario=request.user,
-
-    )
+    if request.user.is_staff:
+        pedido = get_object_or_404(
+            Pedido,
+            id=pedido_id,
+        )
+    else:
+        pedido = get_object_or_404(
+            Pedido,
+            id=pedido_id,
+            usuario=request.user,
+        )
 
     detalles = (
         pedido.detalles
@@ -725,6 +734,10 @@ def detalle_pedido(
 
 @login_required
 def reportes(request):
+    from django.core.exceptions import (
+    PermissionDenied,
+    ValidationError,
+)
 
     # ---------------------------------------------
     # AUTORIZACIÓN
@@ -1013,3 +1026,92 @@ def reportes(request):
 
         },
     )
+    
+# =========================================================
+# EDITAR PEDIDO (SOLO ADMINISTRADOR)
+# =========================================================
+
+@login_required
+def editar_pedido(request, pedido_id):
+
+    if not request.user.is_staff:
+        raise PermissionDenied
+
+    pedido = get_object_or_404(
+        Pedido,
+        id=pedido_id,
+    )
+
+    detalles = (
+        pedido.detalles
+        .select_related("producto")
+        .all()
+    )
+
+    if request.method == "POST":
+        if pedido.estado != Pedido.Estado.PENDIENTE:
+            messages.warning(
+                request,
+                "No se pueden modificar cantidades porque el pedido no está PENDIENTE.",
+            )
+            return redirect("mis_pedidos")
+
+        try:
+            with transaction.atomic():
+                for detalle in detalles:
+                    campo = f"cantidad_{detalle.id}"
+                    if campo in request.POST:
+                        nueva_cantidad = int(request.POST[campo])
+                        detalle.actualizar_cantidad(nueva_cantidad)
+
+                # ---> AQUÍ VA EL RECÁLCULO DEL TOTAL <---
+                pedido.recalcular_total()
+
+            messages.success(
+                request,
+                f"Pedido #{pedido.id} actualizado. Nuevo total: S/ {pedido.total}.",
+            )
+            return redirect("mis_pedidos")
+
+        except ValueError:
+            messages.error(request, "Ingrese una cantidad numérica válida.")
+        except ValidationError as e:
+            messages.error(request, e.message)
+
+    return render(
+        request,
+        "pedidos/editar.html",
+        {
+            "pedido": pedido,
+            "detalles": detalles,
+        },
+    )
+
+# =========================================================
+# CAMBIAR ESTADO DEL PEDIDO (SOLO ADMINISTRADOR)
+# =========================================================
+
+@login_required
+@require_POST
+def cambiar_estado_pedido(request, pedido_id):
+
+    if not request.user.is_staff:
+        raise PermissionDenied
+
+    pedido = get_object_or_404(
+        Pedido,
+        id=pedido_id,
+    )
+
+    nuevo_estado = request.POST.get("estado")
+
+    try:
+        pedido.cambiar_estado(nuevo_estado)
+        messages.success(
+            request,
+            f"Estado del Pedido #{pedido.id} actualizado a {pedido.get_estado_display()}.",
+        )
+    except ValidationError as e:
+        messages.error(request, e.message)
+
+    return redirect("mis_pedidos")

@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+
+{% block content %}
+
+
+<h1>
+    Editar Pedido #{{ pedido.id }}
+</h1>
+
+
+<div class="mb-4">
+
+    <strong>
+        Cliente:
+    </strong>
+    {{ pedido.usuario.username }}
+
+    <br>
+
+    <strong>
+        Fecha:
+    </strong>
+    {{ pedido.fecha|date:"d/m/Y H:i" }}
+
+    <br>
+
+    <strong>
+        Estado:
+    </strong>
+    {% include "pedidos/_estado_badge.html" with pedido=pedido %}
+
+</div>
+
+
+<!-- Requerimiento 2: Advertencia si el pedido no está PENDIENTE -->
+{% if pedido.estado != "PENDIENTE" %}
+<div class="alert alert-warning">
+    Este pedido se encuentra en estado
+    <strong>{{ pedido.get_estado_display }}</strong>.
+    No se permite modificar las cantidades de sus productos.
+</div>
+{% endif %}
+
+
+<form method="POST">
+
+    {% csrf_token %}
+
+    <div class="table-responsive">
+
+        <table class="table table-bordered align-middle">
+
+            <thead class="table-dark">
+
+                <tr>
+
+                    <th>
+                        Producto
+                    </th>
+
+                    <th>
+                        Stock disponible
+                    </th>
+
+                    <th>
+                        Precio unitario
+                    </th>
+
+                    <th style="width: 160px;">
+                        Cantidad
+                    </th>
+
+                    <th>
+                        Subtotal
+                    </th>
+
+                </tr>
+
+            </thead>
+
+
+            <tbody>
+
+                {% for detalle in detalles %}
+
+                <tr>
+
+                    <td>
+                        {{ detalle.producto.nombre }}
+                    </td>
+
+                    <td>
+                        {{ detalle.producto.stock }}
+                    </td>
+
+                    <td>
+                        S/ {{ detalle.precio_unitario }}
+                    </td>
+
+                    <td>
+                        <input
+                            type="number"
+                            name="cantidad_{{ detalle.id }}"
+                            value="{{ detalle.cantidad }}"
+                            min="1"
+                            class="form-control form-control-sm"
+                            {% if pedido.estado != "PENDIENTE" %}disabled{% endif %}
+                        >
+                    </td>
+
+                    <td>
+                        S/ {{ detalle.subtotal }}
+                    </td>
+
+                </tr>
+
+                {% empty %}
+
+                <tr>
+                    <td colspan="5" class="text-center">
+                        No existen productos en este pedido.
+                    </td>
+                </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+
+    <div class="text-end mb-4">
+
+        <h3>
+            Total: S/ {{ pedido.total }}
+        </h3>
+
+    </div>
+
+
+    <div class="d-flex gap-2">
+
+        {% if pedido.estado == "PENDIENTE" %}
+        <button type="submit" class="btn btn-success">
+            Guardar cambios
+        </button>
+        {% endif %}
+
+        <a
+            href="{% url 'mis_pedidos' %}"
+            class="btn btn-secondary"
+        >
+            Volver a Mis pedidos
+        </a>
+
+    </div>
+
+</form>
+
+
+{% endblock %}

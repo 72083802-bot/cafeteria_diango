@@ -1,9 +1,15 @@
+# Importamos Decimal para cálculos monetarios exactos.
+from decimal import Decimal
+
 # Importamos la configuración general de Django.
-# Nos permitirá relacionar los pedidos con los usuarios.
 from django.conf import settings
 
-# Importamos el sistema de modelos de Django.
-from django.db import models
+# Excepción para validar reglas de negocio.
+from django.core.exceptions import ValidationError
+
+# Importamos el sistema de modelos, transacciones y operaciones en BD de Django.
+from django.db import models, transaction
+from django.db.models import F, Sum
 
 
 # =========================================================
@@ -12,17 +18,11 @@ from django.db import models
 
 class Categoria(models.Model):
 
-    # Nombre de la categoría.
     nombre = models.CharField(max_length=100)
-
-    # Descripción opcional.
     descripcion = models.TextField(blank=True)
-
-    # Permite activar o desactivar categorías.
     activo = models.BooleanField(default=True)
 
     def __str__(self):
-        # Texto que se mostrará en el administrador.
         return self.nombre
 
     class Meta:
@@ -37,14 +37,8 @@ class Categoria(models.Model):
 
 class Producto(models.Model):
 
-    # Nombre comercial del producto.
     nombre = models.CharField(max_length=100)
-
-    # Descripción del producto.
     descripcion = models.TextField(blank=True)
-
-    # Cada producto pertenece a una categoría.
-    # Si la categoría se elimina, el producto permanecerá.
     categoria = models.ForeignKey(
         Categoria,
         on_delete=models.SET_NULL,
@@ -52,25 +46,15 @@ class Producto(models.Model):
         blank=True,
         related_name="productos",
     )
-
-    # Precio del producto con dos decimales.
     precio = models.DecimalField(
         max_digits=8,
         decimal_places=2,
     )
-
-    # Cantidad disponible.
     stock = models.PositiveIntegerField(default=0)
-
-    # Imagen del producto.
-    # Las imágenes se guardarán en:
-    # media/productos/
     imagen = models.ImageField(
         upload_to="productos/",
         blank=True,
     )
-
-    # Permite ocultar un producto sin eliminarlo.
     activo = models.BooleanField(default=True)
 
     def __str__(self):
@@ -86,36 +70,71 @@ class Producto(models.Model):
 
 class Pedido(models.Model):
 
-    # Estados posibles de un pedido.
     class Estado(models.TextChoices):
         PENDIENTE = "PENDIENTE", "Pendiente"
         PREPARACION = "PREPARACION", "En preparación"
         ATENDIDO = "ATENDIDO", "Atendido"
         CANCELADO = "CANCELADO", "Cancelado"
 
-    # Usuario que realizó el pedido.
+    # Requerimiento 8: Transiciones válidas de estado.
+    TRANSICIONES_VALIDAS = {
+        Estado.PENDIENTE: [Estado.PREPARACION, Estado.CANCELADO],
+        Estado.PREPARACION: [Estado.ATENDIDO, Estado.CANCELADO],
+        Estado.ATENDIDO: [],
+        Estado.CANCELADO: [],
+    }
+
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="pedidos",
     )
-
-    # Fecha automática de creación.
     fecha = models.DateTimeField(auto_now_add=True)
-
-    # Total monetario del pedido.
     total = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=0,
     )
-
-    # Estado actual del pedido.
     estado = models.CharField(
         max_length=20,
         choices=Estado.choices,
         default=Estado.PENDIENTE,
     )
+    # Requerimiento 6: Controla que el stock no se devuelva más de una vez.
+    stock_devuelto = models.BooleanField(default=False)
+
+    # Requerimiento 3: Recalcular el total sumando los subtotales reales en BD.
+    def recalcular_total(self):
+        nuevo_total = sum(
+            (detalle.subtotal for detalle in self.detalles.all()),
+            Decimal("0.00"),
+        )
+        self.total = nuevo_total
+        Pedido.objects.filter(pk=self.pk).update(total=nuevo_total)
+
+    # Requerimientos 5, 6 y 8: Validar transición y devolver stock si se cancela.
+    @transaction.atomic
+    def cambiar_estado(self, nuevo_estado):
+        if nuevo_estado == self.estado:
+            return
+
+        permitidos = self.TRANSICIONES_VALIDAS.get(self.estado, [])
+        if nuevo_estado not in permitidos:
+            etiqueta_actual = self.get_estado_display()
+            etiqueta_nueva = dict(self.Estado.choices).get(nuevo_estado, nuevo_estado)
+            raise ValidationError(
+                f"Transición no permitida: de {etiqueta_actual} a {etiqueta_nueva}."
+            )
+
+        if nuevo_estado == self.Estado.CANCELADO and not self.stock_devuelto:
+            for detalle in self.detalles.select_related("producto").all():
+                Producto.objects.filter(pk=detalle.producto.pk).update(
+                    stock=F("stock") + detalle.cantidad
+                )
+            self.stock_devuelto = True
+
+        self.estado = nuevo_estado
+        self.save(update_fields=["estado", "stock_devuelto"])
 
     def __str__(self):
         return f"Pedido {self.id} - {self.usuario.username}"
@@ -130,52 +149,68 @@ class Pedido(models.Model):
 
 class DetallePedido(models.Model):
 
-        # Pedido al que pertenece este producto.
     pedido = models.ForeignKey(
         Pedido,
         on_delete=models.CASCADE,
         related_name="detalles",
     )
-
-    # Producto seleccionado.
     producto = models.ForeignKey(
         Producto,
         on_delete=models.CASCADE,
         related_name="detalles_pedido",
     )
-
-    # Cantidad comprada.
     cantidad = models.PositiveIntegerField(
         default=1
     )
-
-    # Precio que tenía el producto
-    # cuando se confirmó el pedido.
-    #
-    # Este valor se guarda para evitar que
-    # un cambio posterior en Producto.precio
-    # modifique pedidos antiguos.
     precio_unitario = models.DecimalField(
         max_digits=8,
         decimal_places=2,
         default=0,
     )
 
-    # Calculamos el subtotal de esta línea.
     @property
     def subtotal(self):
-
         return self.precio_unitario * self.cantidad
 
-    def __str__(self):
+    # Requerimientos 2, 3 y 4: Modificar cantidades, ajustar stock y recalcular total.
+    @transaction.atomic
+    def actualizar_cantidad(self, nueva_cantidad):
+        if self.pedido.estado != Pedido.Estado.PENDIENTE:
+            raise ValidationError(
+                "Solo se pueden modificar cantidades cuando el pedido está PENDIENTE."
+            )
 
-        return (
-            f"{self.producto.nombre} "
-            f"x{self.cantidad}"
-        )
+        if nueva_cantidad <= 0:
+            raise ValidationError("La cantidad debe ser mayor a 0.")
+
+        diferencia = nueva_cantidad - self.cantidad
+
+        if diferencia > 0:
+            self.producto.refresh_from_db()
+            if self.producto.stock < diferencia:
+                raise ValidationError(
+                    f"Stock insuficiente para {self.producto.nombre}. "
+                    f"Disponible: {self.producto.stock}."
+                )
+            Producto.objects.filter(pk=self.producto.pk).update(
+                stock=F("stock") - diferencia
+            )
+        elif diferencia < 0:
+            Producto.objects.filter(pk=self.producto.pk).update(
+                stock=F("stock") + abs(diferencia)
+            )
+
+        self.cantidad = nueva_cantidad
+        self.save(update_fields=["cantidad"])
+        self.pedido.recalcular_total()
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.pedido.recalcular_total()
+
+    def __str__(self):
+        return f"{self.producto.nombre} x{self.cantidad}"
 
     class Meta:
-
         verbose_name = "Detalle de pedido"
-
         verbose_name_plural = "Detalles de pedido"
